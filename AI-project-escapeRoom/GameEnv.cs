@@ -35,32 +35,114 @@ class GameEnvironment
         currentStep++;
         int reward = 0;
         bool IsDone = false;
+
         // Apply action
         switch (action)
         {
             case 0: game.player.Move(new Vector2(-10, 0)); break; // Move left
             case 1: game.player.Move(new Vector2(10, 0)); break;  // Move right
             case 2: if (game.player.IsGrounded) game.player.ApplyForce(new Vector2(0, -250)); break; // Jump
-            case 3: game.player.Grab(game.box); break; // Interact (example)
-            case 4: game.player.DropHeldBox(); break; // Interact (example)
+            case 3: game.player.Grab(game.box); break; // Interact (e.g., pick up the box)
+            case 4: game.player.DropHeldBox(); break; // Interact (e.g., drop the box)
         }
 
-        // Check for rewards
-        if (game.IsPressed)
-            reward += 10;
-        if (game.IsOpen)
-            reward += 100;
+        // Rewards for key objectives
+        if (game.box.Intersects(game.button))
+        {
+            reward += 100; // Major reward for placing the box on the button
+            game.IsPressed = true; // Mark the button as activated
+        }
+
         if (game.player.Intersects(game.box))
-            reward += 5;
+        {
+            reward += 20; // Reward for successfully picking up or interacting with the box
+        }
 
-        // Check if the game is over
-        if (game.IsOpen || currentStep >= maxSteps)
-            reward += -1; // Penalty for taking too long
+        if (game.player.Intersects(game.door) && game.IsPressed)
+        {
+            reward += 200; // High reward for completing the goal
+            IsDone = true; // Mark the episode as complete
+        }
 
-        if (game.player.Position.X < game.cameraPosition.X || game.player.Position.X > game.cameraPosition.X + game.ScreenWidth ||
-            game.player.Position.Y < game.cameraPosition.Y || game.player.Position.Y > game.cameraPosition.Y + game.ScreenHeight)
-            IsDone = true; // Penalty for going out of bounds
+        // Encouraging progress
+        if (game.IsMovingToward(game.box, game.lastPlayerPosition))
+        {
+            reward += 5; // Encourage moving toward the box
+        }
+
+        if (game.IsMovingToward(game.button, game.lastPlayerPosition) && game.player.heldBox != null)
+        {
+            reward += 10; // Higher reward for moving the box closer to the button
+        }
+
+        if (game.IsMovingToward(game.door, game.lastPlayerPosition) && game.IsPressed)
+        {
+            reward += 10; // Reward for heading toward the door after activating the button
+        }
+
+        // Exploration and activity
+        if (game.IsExploringNewArea())
+        {
+            reward += 2; // Small reward for exploring new areas
+        }
+
+        if (game.IsIdle())
+        {
+            reward -= 2; // Slight penalty for standing still to encourage movement
+        }
+
+        // Penalties for mistakes
+        if (!game.box.Intersects(game.button) && game.player.Intersects(game.door))
+        {
+            reward -= 50; // Penalty for trying to exit without solving the puzzle
+        }
+
+        if (currentStep >= maxSteps)
+        {
+            reward -= 10; // Increased penalty for exceeding step limit
+            ResetPlayerAndBox(); // Reset positions
+            IsDone = true; // End the episode
+        }
+
+        if (IsOutOfBounds(game.player))
+        {
+            reward -= 20; // Penalty for going out of bounds
+            ResetPlayerPosition(); // Reset player position
+            IsDone = true; // End the episode
+        }
+
+        if (IsOutOfBounds(game.box))
+        {
+            reward -= 20; // Penalty for box out of bounds
+            ResetBoxPosition(); // Reset box position
+            IsDone = true; // End the episode
+        }
+
         return (GetState(), reward, IsDone);
+    }
+
+    // Helper methods
+    private bool IsOutOfBounds(GameObject obj)
+    {
+        return obj.Position.X < game.cameraPosition.X || obj.Position.X > game.cameraPosition.X + game.ScreenWidth ||
+               obj.Position.Y < game.cameraPosition.Y || obj.Position.Y > game.cameraPosition.Y + game.ScreenHeight;
+    }
+
+    private void ResetPlayerAndBox()
+    {
+        ResetPlayerPosition();
+        ResetBoxPosition();
+        currentStep = 0;
+    }
+
+    private void ResetPlayerPosition()
+    {
+        game.player.Position = new Vector2(100, game.groundLevel - game.player.Size.Y);
+    }
+
+    private void ResetBoxPosition()
+    {
+        game.box.Position = new Vector2(200, game.groundLevel - game.box.Size.Y);
     }
 
     public bool IsDone()
